@@ -1,0 +1,55 @@
+---
+- name: Manage SSH Login Banner Configuration
+  hosts: "{{ target_host }}"
+  become: true
+  gather_facts: false
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # STATE: PRESENT (Enforce Banner)
+    # -------------------------------------------------------------------------
+    - name: "Enforce | Create compliant banner file"
+      ansible.builtin.copy:
+        dest: /etc/issue
+        content: |
+          ========================================================================
+          {{ banner_text }}
+          You are accessing a U.S. Government (USG) Information System (IS).
+          ========================================================================
+        mode: '0644'
+        owner: root
+        group: root
+      when: state == 'present'
+
+    - name: "Enforce | Configure SSHd to display banner"
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^Banner '
+        line: 'Banner /etc/issue'
+        state: present
+      notify: Restart SSHd
+      when: state == 'present'
+
+    # -------------------------------------------------------------------------
+    # STATE: ABSENT (Revert Banner)
+    # -------------------------------------------------------------------------
+    - name: "Revert | Remove banner configuration from SSHd"
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^Banner '
+        state: absent
+      notify: Restart SSHd
+      when: state == 'absent'
+
+    - name: "Revert | Restore default banner file"
+      ansible.builtin.copy:
+        dest: /etc/issue
+        content: "Red Hat Enterprise Linux\nKernel \\r on an \\m\n"
+        mode: '0644'
+      when: state == 'absent'
+
+  handlers:
+    - name: Restart SSHd
+      ansible.builtin.service:
+        name: sshd
+        state: restarted

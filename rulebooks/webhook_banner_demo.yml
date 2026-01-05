@@ -1,0 +1,29 @@
+---
+- name: SSH Banner Toggle Listener
+  hosts: all
+  sources:
+    - ansible.eda.webhook:
+        host: 0.0.0.0
+        port: 5000
+
+  rules:
+    # Scenario A: "Banner On" -> Enforce Compliance
+    - name: Received 'banner on' command
+      condition: event.payload.message == "banner on"
+      action:
+        run_playbook:
+          name: playbooks/manage_banner.yml
+          extra_vars:
+            target_host: "{{ event.payload.hostname }}"
+            state: "present"
+            banner_text: "UNCLASSIFIED // FOR OFFICIAL USE ONLY"
+
+    # Scenario B: "Banner Off" -> Revert to Non-Compliant
+    - name: Received 'banner off' command
+      condition: event.payload.message == "banner off"
+      action:
+        run_playbook:
+          name: playbooks/manage_banner.yml
+          extra_vars:
+            target_host: "{{ event.payload.hostname }}"
+            state: "absent"
