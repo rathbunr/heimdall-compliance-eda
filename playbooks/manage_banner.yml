@@ -1,27 +1,42 @@
 ---
-- name: Manage SSH Login Banner Configuration
+# =============================================================================
+# PLAY 1: REMEDIATION / CONFIGURATION MANAGEMENT
+# =============================================================================
+- name: Manage SSH Login Banner (STIG V-204366)
   hosts: "{{ target_host }}"
   become: true
-  gather_facts: false
+  gather_facts: true
+  vars:
+    # This variable controls the Smart Reboot logic in Play 3
+    insights_needs_reboot: false
+    
+    # Standard STIG/Compliance Tags for Metadata
+    stig_id: "V-204366"
+    rule_id: "sshd_enable_warning_banner"
 
   tasks:
     # -------------------------------------------------------------------------
-    # STATE: PRESENT (Enforce Banner)
+    # SCENARIO A: ENFORCE COMPLIANCE (Banner ON)
     # -------------------------------------------------------------------------
-    - name: "Enforce | Create compliant banner file"
+    - name: "Enforce | {{ stig_id }} | Create compliant /etc/issue"
       ansible.builtin.copy:
         dest: /etc/issue
         content: |
           ========================================================================
-          {{ banner_text }}
+          {{ banner_text | default('UNCLASSIFIED // FOR OFFICIAL USE ONLY') }}
           You are accessing a U.S. Government (USG) Information System (IS).
           ========================================================================
         mode: '0644'
         owner: root
         group: root
       when: state == 'present'
+      tags:
+        - CCE-26800-3
+        - DISA-STIG-RHEL-07-010050
+        - NIST-800-53-AC-8(a)
+        - PCI-DSSv4-8.4.1
 
-    - name: "Enforce | Configure SSHd to display banner"
+    - name: "Enforce | {{ stig_id }} | Configure SSHd Banner"
       ansible.builtin.lineinfile:
         path: /etc/ssh/sshd_config
         regexp: '^Banner '
@@ -29,27 +44,69 @@
         state: present
       notify: Restart SSHd
       when: state == 'present'
+      tags: ["configuration", "sshd"]
 
     # -------------------------------------------------------------------------
-    # STATE: ABSENT (Revert Banner)
+    # SCENARIO B: REVERT / BREAK COMPLIANCE (Banner OFF)
     # -------------------------------------------------------------------------
-    - name: "Revert | Remove banner configuration from SSHd"
+    - name: "Revert | {{ stig_id }} | Remove SSHd Banner Config"
       ansible.builtin.lineinfile:
         path: /etc/ssh/sshd_config
         regexp: '^Banner '
         state: absent
       notify: Restart SSHd
       when: state == 'absent'
+      tags: ["revert"]
 
-    - name: "Revert | Restore default banner file"
+    - name: "Revert | {{ stig_id }} | Restore Default /etc/issue"
       ansible.builtin.copy:
         dest: /etc/issue
         content: "Red Hat Enterprise Linux\nKernel \\r on an \\m\n"
         mode: '0644'
       when: state == 'absent'
+      tags: ["revert"]
 
   handlers:
     - name: Restart SSHd
       ansible.builtin.service:
         name: sshd
         state: restarted
+
+# =============================================================================
+# PLAY 2: REPORTING / VERIFICATION
+# (Adopted from Red Hat Insights Playbook)
+# =============================================================================
+- name: Update Compliance Status (Close the Loop)
+  hosts: "{{ target_host }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Run Insights Compliance Scan
+      ansible.builtin.command: insights-client --compliance
+      changed_when: false
+      ignore_errors: true
+      # In a demo, this visually proves we are checking our work immediately
+      tags: ["reporting", "verification"]
+
+# =============================================================================
+# PLAY 3: SMART REBOOT SAFETY NET
+# (Adopted from Red Hat Insights Playbook)
+# =============================================================================
+- name: Reboot system (if applicable)
+  hosts: "{{ target_host }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - when:
+        - hostvars[inventory_hostname]['insights_needs_reboot'] | default(false) | bool
+      block:
+        - name: Reboot system
+          ansible.builtin.shell: sleep 2 && shutdown -r now "Ansible triggered reboot"
+          async: 1
+          poll: 0
+          ignore_errors: true
+
+        - name: Wait for system to boot up
+          ansible.builtin.wait_for_connection:
+            delay: 15
+            timeout: 300
