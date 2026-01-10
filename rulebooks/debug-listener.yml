@@ -3,7 +3,7 @@
   hosts: localhost
   sources:
     - ansible.eda.kafka:
-        host: localhost
+        host: heimdall-01.corp.ritcsusa.com
         port: 9092
         topic: heimdall.public.Evaluations
         group_id: debug-listener-01
