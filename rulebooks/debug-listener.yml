@@ -1,0 +1,29 @@
+---
+- name: Heimdall Data Stream Debugger
+  hosts: localhost
+  sources:
+    - ansible.eda.kafka:
+        host: localhost
+        port: 9092
+        topic: heimdall.public.Evaluations
+        group_id: debug-listener-01
+        # 'latest' means wait for new data. Change to 'earliest' to replay history.
+        offset: latest
+
+  rules:
+    # Rule 1: Catch Everything and Print It
+    - name: Dump All Events
+      condition: event.payload is defined
+      action:
+        debug:
+          msg: |
+            ==============================================
+            RECEIVED KAFKA EVENT
+            ==============================================
+            Operation: {{ event.payload.op }} (c=create, u=update, d=delete)
+            ID: {{ event.payload.after.id }}
+            Title: {{ event.payload.after.title }}
+            ----------------------------------------------
+            FULL RAW DATA:
+            {{ event }}
+            ==============================================
